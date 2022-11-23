@@ -165,7 +165,9 @@ def best_partition(graph,
                    weight='weight',
                    resolution=1.,
                    randomize=None,
-                   random_state=None):
+                   random_state=None,
+                   status = None,
+                   Rt=None):
     """Compute the partition of the graph nodes which maximises the modularity
     (or try..) using the Louvain heuristices
 
@@ -251,7 +253,7 @@ def best_partition(graph,
                                 weight,
                                 resolution,
                                 randomize,
-                                random_state)
+                                random_state, status, Rt)
     return partition_at_level(dendo, len(dendo) - 1)
 
 
@@ -260,7 +262,9 @@ def generate_dendrogram(graph,
                         weight='weight',
                         resolution=1.,
                         randomize=None,
-                        random_state=None):
+                        random_state=None,
+                        status = None,
+                        Rt=None):
     """Find communities in the graph and return the associated dendrogram
 
     A dendrogram is a tree and each level is a partition of the graph nodes.
@@ -346,10 +350,11 @@ def generate_dendrogram(graph,
         return [part]
 
     current_graph = graph.copy()
-    status = Status()
+    if status == None:
+        status = Status()
     status.init(current_graph, weight, part_init)
     status_list = list()
-    __one_level(current_graph, status, weight, resolution, random_state)
+    __one_level(current_graph, status, weight, resolution, random_state, Rt)
     new_mod = __modularity(status, resolution)
     partition = __renumber(status.node2com)
     status_list.append(partition)
@@ -417,7 +422,6 @@ def induced_graph(partition, graph, weight="weight"):
 
     return ret
 
-
 def __renumber(dictionary):
     """Renumber the values of the dictionary from 0 to n
     """
@@ -467,7 +471,7 @@ def load_binary(data):
     return graph
 
 
-def __one_level(graph, status, weight_key, resolution, random_state):
+def __one_level(graph, status, weight_key, resolution, random_state, Rt=None):
     """Compute one level of communities
     """
     modified = True
@@ -475,17 +479,20 @@ def __one_level(graph, status, weight_key, resolution, random_state):
     cur_mod = __modularity(status, resolution)
     new_mod = cur_mod
 
+    node_list = Rt if Rt != None else __randomize(graph.nodes(), random_state)
     while modified and nb_pass_done != __PASS_MAX:
         cur_mod = new_mod
         modified = False
         nb_pass_done += 1
-
-        for node in __randomize(graph.nodes(), random_state):
+        for node in node_list:
+            if node not in status.node2com:
+                continue
             com_node = status.node2com[node]
             degc_totw = status.gdegrees.get(node, 0.) / (status.total_weight * 2.)  # NOQA
             neigh_communities = __neighcom(node, graph, status, weight_key)
             remove_cost = - neigh_communities.get(com_node,0) + \
-                resolution * (status.degrees.get(com_node, 0.) - status.gdegrees.get(node, 0.)) * degc_totw
+                resolution * (status.degrees.get(com_node, 0.) - \
+                status.gdegrees.get(node, 0.)) * degc_totw
             __remove(node, com_node,
                      neigh_communities.get(com_node, 0.), status)
             best_com = com_node
@@ -505,18 +512,18 @@ def __one_level(graph, status, weight_key, resolution, random_state):
             break
 
 
-def __neighcom(node, graph, status, weight_key):
+def __neighcom(node, graph, status, weight_key, graph_items=None):
     """
     Compute the communities in the neighborhood of node in the graph given
     with the decomposition node2com
     """
+    graph_item_list = graph_items if graph_items != None else graph[node].items()
     weights = {}
-    for neighbor, datas in graph[node].items():
+    for neighbor, datas in graph_item_list:
         if neighbor != node:
             edge_weight = datas.get(weight_key, 1)
             neighborcom = status.node2com[neighbor]
             weights[neighborcom] = weights.get(neighborcom, 0) + edge_weight
-
     return weights
 
 
@@ -558,3 +565,43 @@ def __randomize(items, random_state):
     randomized_items = list(items)
     random_state.shuffle(randomized_items)
     return randomized_items
+
+def neighcom(a, b, c, d, e):
+    return __neighcom(a, b, c, d, e)
+def remove(a, b, c, d):
+    return __remove(a, b, c, d)
+def insert(a, b, c, d):
+    return __insert(a, b, c, d)
+
+class DStatus(object):
+    """
+    To handle delta-screening data in one struct
+    """
+    def __init__(self, resolution = 1, weight='weight'):
+        self.node2com = set()
+        self.status = Status()
+        self.mod = -1
+        self.resolution = resolution
+        self.weight_key = weight
+
+    def init(self, graph, weight='weight', part=None):
+        self.status.init(graph, weight, part)
+        #self.mod = __modularity(self.status, self.resolution)
+
+    # Compute the gain we can expect from moving a node to another community
+    def gain(self, node, new_com, graph=None, Td=None):
+        curr_com = self.status.node2com[node]
+        if curr_com == new_com:
+            return -1
+        degc_totw = self.status.gdegrees.get(node, 0.) / (self.status.total_weight * 2.)  # NOQA
+        neigh_communities = neighcom(node, graph, self.status, self.weight_key, Td)
+        curr_com_weight = neigh_communities.get(curr_com, 0)
+        new_com_weight = neigh_communities.get(new_com, 0)
+        remove_cost = -curr_com_weight + \
+                self.resolution * (self.status.degrees.get(curr_com, 0.) - \
+                self.status.gdegrees.get(node, 0.)) * degc_totw
+        remove(node, curr_com, neigh_communities.get(curr_com, 0.), self.status)
+        incr = remove_cost + new_com_weight + \
+                self.resolution * self.status.degrees.get(new_com, 0.) * degc_totw
+        insert(node, curr_com, neigh_communities.get(curr_com, 0.), self.status)
+        return incr

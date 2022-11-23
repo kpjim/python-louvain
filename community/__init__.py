@@ -13,6 +13,11 @@ from .community_louvain import (
     generate_dendrogram,
     induced_graph,
     load_binary,
+    DStatus,
+)
+
+from .community_status import (
+        Status,
 )
 
 __version__ = "0.16"

@@ -39,6 +39,7 @@ class Status(object):
         """Initialize the status of a graph with every node in one community"""
         count = 0
         self.node2com = dict([])
+        self.com2node = dict([])
         self.total_weight = 0
         self.degrees = dict([])
         self.gdegrees = dict([])
@@ -47,6 +48,9 @@ class Status(object):
         if part is None:
             for node in graph.nodes():
                 self.node2com[node] = count
+                if count not in self.com2node:
+                    self.com2node[count] = set()
+                self.com2node[count].add(node)
                 deg = float(graph.degree(node, weight=weight))
                 if deg < 0:
                     error = "Bad node degree ({})".format(deg)
@@ -61,6 +65,9 @@ class Status(object):
             for node in graph.nodes():
                 com = part[node]
                 self.node2com[node] = com
+                if com not in self.com2node:
+                    self.com2node[com] = set()
+                self.com2node[com].add(node)
                 deg = float(graph.degree(node, weight=weight))
                 self.degrees[com] = self.degrees.get(com, 0) + deg
                 self.gdegrees[node] = deg
